@@ -1,1 +1,2 @@
 fastapi[standard]<=0.133
+redis[hiredis]>=5.2,<6

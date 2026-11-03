@@ -1,8 +1,27 @@
 services:
-  web:
-    build: .
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+  booking-api:
+    build:
+      context: .
     ports:
       - "8000:8000"
+    environment:
+      REDIS_URL: redis://redis:6379/0
     volumes:
       - .:/app
-    command: uvicorn main:app --host 0.0.0.0 --port 8000
+    command: uvicorn main:app --app-dir backend/booking-api --host 0.0.0.0 --port 8000 --reload
+    depends_on:
+      - redis
+  ticket-worker:
+    build:
+      context: .
+    environment:
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - .:/app
+    command: python backend/worker-service/worker.py
+    depends_on:
+      - redis
