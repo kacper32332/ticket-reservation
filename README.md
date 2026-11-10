@@ -1,4 +1,4 @@
-# Ticketline
+# README
 
 System rezerwacji biletów zbudowany jako skalowalny system mikroserwisowy. Projekt powstaje w ramach
 pracy inżynierskiej **„Projekt i implementacja skalowalnego systemu mikroserwisowego do obsługi procesów
@@ -150,14 +150,3 @@ docker compose exec core-api python scripts/smoke_check.py --stream-tests
     ├── worker/               # main (pętla konsumenta), tasks, services (logika DB)
     └── scripts/smoke_check.py
 ```
-
-## Plan prac
-
-- [x] Monorepo, PostgreSQL, Core API, Booking API, worker z atomowym `UPDATE` i idempotencją
-- [x] Redis Streams z consumer group, `XAUTOCLAIM`, dead letter, graceful shutdown
-- [x] Logowanie JWT i rola admina
-- [ ] Frontend: polling statusu rezerwacji, adresy API ze zmiennych `VITE_*`
-- [ ] Manifesty Kubernetes / Helm (HPA, KEDA `ScaledObject`, ingress)
-- [ ] Metryki Prometheus i dashboard Grafana
-- [ ] Testy obciążeniowe w Locust (`LoadTestShape` 0 → 2000, tryb rozproszony): scenariusze
-      A (zapis synchroniczny), B (kolejka, stała liczba podów), C (kolejka + autoskalowanie)
