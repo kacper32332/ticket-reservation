@@ -1,27 +1,104 @@
+x-backend-env: &backend-env
+  DATABASE_URL: postgresql+asyncpg://tickets:tickets@postgres:5432/tickets
+  REDIS_URL: redis://redis:6379/0
+  # Wartości tylko do developmentu. W K8s: Secret.
+  JWT_SECRET: dev-ticketline-jwt-secret-change-in-production
+  ADMIN_EMAIL: admin@ticketline.pl
+  ADMIN_PASSWORD: admin12345
+
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: tickets
+      POSTGRES_PASSWORD: tickets
+      POSTGRES_DB: tickets
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Wykonywany tylko przy pierwszym starcie (pusty wolumen).
+      # Po zmianie schematu: docker compose down -v
+      - ./db/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tickets -d tickets"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
   redis:
     image: redis:7-alpine
     ports:
       - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  core-api:
+    build:
+      context: ./backend
+      dockerfile: core_api/Dockerfile
+    ports:
+      - "8001:8000"
+    environment: *backend-env
+    volumes:
+      - ./backend:/app
+    command: uvicorn core_api.main:app --host 0.0.0.0 --port 8000 --reload
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
   booking-api:
     build:
-      context: .
+      context: ./backend
+      dockerfile: booking_api/Dockerfile
     ports:
       - "8000:8000"
     environment:
       REDIS_URL: redis://redis:6379/0
     volumes:
-      - .:/app
-    command: uvicorn main:app --app-dir backend/booking-api --host 0.0.0.0 --port 8000 --reload
+      - ./backend:/app
+    command: uvicorn booking_api.main:app --host 0.0.0.0 --port 8000 --reload
     depends_on:
-      - redis
-  ticket-worker:
+      redis:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: worker/Dockerfile
+    environment: *backend-env
+    # Czas na dokończenie bieżącej paczki po SIGTERM (odpowiednik
+    # terminationGracePeriodSeconds w K8s).
+    stop_grace_period: 30s
+    volumes:
+      - ./backend:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  frontend:
     build:
       context: .
+      dockerfile: Dockerfile.frontend
+    ports:
+      - "5173:5173"
     environment:
-      REDIS_URL: redis://redis:6379/0
+      VITE_USE_POLLING: "true"
     volumes:
-      - .:/app
-    command: python backend/worker-service/worker.py
+      - ./frontend:/frontend
+      # Osobny wolumen na node_modules: kontener używa swoich (linuksowych),
+      # a nie tych z Windowsa z bind mounta.
+      - /frontend/node_modules
     depends_on:
-      - redis
+      - core-api
+      - booking-api
+
+volumes:
+  pgdata:

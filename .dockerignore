@@ -1,0 +1,7 @@
+# Kontekst budowania frontendu to katalog główny repo (Dockerfile.frontend).
+# Bez tego do obrazu trafiłyby node_modules z Windowsa i nadpisały te z Linuxa.
+.git
+**/node_modules
+**/dist
+**/.venv
+**/__pycache__

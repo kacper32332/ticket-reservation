@@ -10,6 +10,9 @@ ticket-system-monorepo/
 │   ├── booking-api.yaml        # Deployment i HPA dla Booking API
 │   └── worker.yaml             # Deployment i skalowanie Workera (np. KEDA)
 │
+├── db/
+│   └── init.sql                # Schemat PostgreSQL + dane startowe (ładowany przez docker-compose)
+│
 ├── frontend/                   # Aplikacja React
 │   ├── package.json
 │   └── src/                    # Kod źródłowy frontendu

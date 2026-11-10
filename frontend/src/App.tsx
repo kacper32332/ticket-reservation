@@ -78,8 +78,8 @@ function App() {
 		const load = async () => {
 			try {
 				const [eventResponse, metricsResponse] = await Promise.all([
-					fetch("http://localhost:8000/api/events"),
-					fetch("http://localhost:8000/api/metrics"),
+					fetch("http://localhost:8001/api/events"),
+					fetch("http://localhost:8001/api/metrics"),
 				]);
 				if (eventResponse.ok) setEvents(await eventResponse.json());
 				if (metricsResponse.ok)
