@@ -1,0 +1,71 @@
+/* Tokeny systemu wizualnego Ticketline - wartości 1:1 z MASTER.md.
+   Każdy kolor, odstęp, promień i czas w CSS aplikacji pochodzi stąd. */
+:root {
+	color-scheme: dark;
+
+	/* Kolory */
+	--ground: #101716;
+	--surface: #18211f;
+	--raised: #1f2a28;
+	--ink: #e6ecea;
+	--muted: #94a3a0;
+	--line: #2b3836;
+	--line-strong: #5e706c;
+	--track: #24302e;
+	--accent: #5dbfb2;
+	--accent-hover: #74cec2;
+	--accent-ink: #0b1312;
+	--accent-soft: rgba(93, 191, 178, 0.14);
+	--accent-ring: rgba(93, 191, 178, 0.3);
+	--refuse: #e08a74;
+	--refuse-soft: rgba(224, 138, 116, 0.14);
+
+	/* Typografia */
+	--font-ui: "Public Sans", "Segoe UI", Roboto, system-ui, sans-serif;
+	--font-id: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+	--t-13: 0.8125rem;
+	--t-15: 0.9375rem;
+	--t-17: 1.0625rem;
+	--t-22: 1.375rem;
+	--t-30: 1.875rem;
+	--t-44: 2.75rem;
+	--lh-text: 1.55;
+	--lh-head: 1.2;
+
+	/* Odstępy */
+	--s-4: 4px;
+	--s-8: 8px;
+	--s-12: 12px;
+	--s-16: 16px;
+	--s-24: 24px;
+	--s-32: 32px;
+	--s-48: 48px;
+	--s-64: 64px;
+
+	/* Układ */
+	--w-shop: 1120px;
+	--w-backstage: 1280px;
+	--w-text: 68ch;
+
+	/* Promienie i głębia */
+	--r-2: 2px;
+	--r-6: 6px;
+	--r-full: 999px;
+	--elev-stub: 0 0 0 1px var(--line), 0 12px 32px rgba(0, 0, 0, 0.45);
+
+	/* Ruch */
+	--dur-fast: 160ms;
+	--dur-base: 240ms;
+	--dur-slow: 320ms;
+	--dur-loop: 1600ms;
+	--ease-calm: cubic-bezier(0.2, 0, 0, 1);
+}
+
+/* Ograniczony ruch: wszystkie czasy 0 ms (pasek kolejki ma osobny wariant w App.css). */
+@media (prefers-reduced-motion: reduce) {
+	:root {
+		--dur-fast: 0ms;
+		--dur-base: 0ms;
+		--dur-slow: 0ms;
+	}
+}

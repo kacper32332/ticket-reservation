@@ -88,7 +88,7 @@ fastapi/                          # C:\Users\Kacper\Desktop\fastapi (Windows)
 ├── Dockerfile.frontend           # node:25-alpine, vite dev server
 ├── db/init.sql                   # schemat + dane startowe (3 wydarzenia)
 ├── k8s/                          # PUSTE — manifesty do zrobienia
-├── frontend/                     # React + Vite; src/App.tsx (adresy API wpisane na sztywno)
+├── frontend/                     # React + Vite; MASTER.md (system wizualny), src/{lib,pages,components,styles}
 └── backend/
     ├── requirements.txt          # wspólne: fastapi[standard], redis[hiredis], sqlalchemy[asyncio], asyncpg
     ├── .dockerignore
@@ -149,8 +149,9 @@ docker compose down -v            # reset bazy (init.sql wykonuje się tylko na 
   Core API przy starcie (`ensure_admin_account`, `ON CONFLICT DO NOTHING`). Hasła: Argon2id (`pwdlib`).
 - Hot reload: backend przez bind mount `./backend:/app` + `--reload`; frontend przez bind mount
   + `VITE_USE_POLLING=true` (Docker na Windowsie nie przekazuje zdarzeń plików).
-- Frontend woła `http://localhost:8001` (oferta, metryki) i `http://localhost:8000` (rezerwacje) — adresy
-  wpisane na sztywno w `frontend/src/App.tsx`; CORS w obu API zezwala na `http://localhost:5173`.
+- Frontend woła Core API (`VITE_CORE_URL`, domyślnie `http://localhost:8001`) i Booking API
+  (`VITE_BOOKING_URL`, domyślnie `http://localhost:8000`) — `frontend/src/lib/api.ts`; CORS w obu API
+  zezwala na `http://localhost:5173`.
 
 ## 7. Stan prac i aktywne cele
 
@@ -158,34 +159,97 @@ docker compose down -v            # reset bazy (init.sql wykonuje się tylko na 
 historia), Booking API (producent + status), worker z atomowym UPDATE i idempotencją, docker compose
 z frontendem, skrypt testowy.
 
+**Zasada priorytetów (ustalone 2026-11-11):** temat waży najmocniej „skalowalny” i „w środowisku
+Kubernetes”, więc **najpierw K8s, monitoring i pomiary**, a frontend jest zamrożony w stanie „działa
+i dobrze wygląda na zrzutach” i wraca dopiero po pomiarach. Nie dodajemy rzeczy, które nie wzmacniają tezy
+(Istio, Kafka, kolejne serwisy, osobny serwis auth, Redis Cluster) — w pracy tylko akapit uzasadnienia.
+
+**Zrobione:**
+- [x] Worker na Redis Streams + consumer group (`XADD` / `XREADGROUP` / `XACK`+`XDEL` / `XAUTOCLAIM`,
+      dead letter, graceful shutdown).
+- [x] Logowanie / JWT (`core_api/routers/auth.py`, `core_api/dependencies.py`, `shared/security.py`)
+      + `POST /api/events` tylko dla admina. Otwarte (niski priorytet): Booking API nie wiąże rezerwacji
+      z kontem (`bookings.user_id` puste) — można weryfikować JWT w Booking API bez bazy.
+
 **Do zrobienia (w kolejności):**
-1. [x] Worker na Redis Streams + consumer group (`XADD` / `XREADGROUP` / `XACK`+`XDEL` / `XAUTOCLAIM`,
-       dead letter, graceful shutdown).
-2. [x] Logowanie / JWT (`core_api/routers/auth.py`, `core_api/dependencies.py`, `shared/security.py`)
-       + `POST /api/events` tylko dla admina. Otwarte: Booking API nie wiąże rezerwacji z kontem
-       (`bookings.user_id` puste) — można weryfikować JWT w Booking API bez bazy (`shared/security.py`).
-3. [ ] Frontend: polling statusu rezerwacji, adresy API z env (`VITE_*`) zamiast na sztywno.
-4. [ ] Manifesty K8s / Helm (`k8s/` puste): postgres, redis, core-api, booking-api (HPA), worker
-       (KEDA ScaledObject, scaler `redis-streams`), ingress. Wymagane `resources.requests` i metrics-server.
-5. [ ] Metryki Prometheus (np. `prometheus-fastapi-instrumentator`, głębokość kolejki) + dashboard Grafana.
-6. [ ] Locust: `LoadTestShape` dla skoku 0 → 2000, tryb rozproszony (master + workerzy).
-7. [ ] (opcjonalnie) PgBouncer.
+1. [ ] **Kubernetes + Helm** (`k8s/` puste). Lokalnie k3d albo kind (development). Chart: postgres,
+       redis, core-api i booking-api (Deployment + HPA po CPU), worker (KEDA `ScaledObject`, scaler
+       `redis-streams`, `lagCount`), Ingress. Obowiązkowo: `resources.requests/limits`, readiness/liveness
+       probe'y, metrics-server, `terminationGracePeriodSeconds` workera ≥ 30 s, sekrety (`JWT_SECRET`,
+       hasła) w `Secret`. `maxReplicas × (DB_POOL_SIZE + DB_MAX_OVERFLOW)` < `max_connections`.
+2. [ ] **Prometheus + Grafana** (np. kube-prometheus-stack): `prometheus-fastapi-instrumentator`
+       w API, metryki kolejki (XLEN, lag, PEL) i workera (przetworzone/s), dashboard: p95, RPS, liczba
+       podów, głębokość kolejki w czasie. Bez tego nie ma wykresów do rozdziału z wynikami.
+3. [ ] **Wariant monolitu do porównań:** `backend/monolith/main.py` — routery z `core_api` + synchroniczny
+       `POST /api/bookings` wołający `worker.services.book_tickets()` (ta sama logika). Osobny Dockerfile,
+       profil `monolith` w compose, osobny release w Helmie. Zasada „Booking API bez Postgresa” nie dotyczy
+       monolitu (osobny artefakt).
+4. [ ] **Locust:** `LoadTestShape` dla skoku 0 → 2000 (poziomy 100/500/1000/2000), `FastHttpUser`,
+       tryb rozproszony, mieszany ruch (~80% przegląda ofertę, ~20% rezerwuje + polling statusu).
+       Generator poza klastrem. Scenariusze z sekcji 8.
+5. [ ] **Testy odporności w K8s:** `kubectl delete pod` (worker, booking-api) w trakcie skoku ruchu,
+       bilans `202 = confirmed + rejected`, brak overbookingu.
+6. [ ] **Wąskie gardło „gorący wiersz”:** najpierw zmierzyć wypłaszczenie przepustowości w funkcji
+       liczby workerów (jedno wydarzenie = jeden wiersz `events`), potem jedno usprawnienie z pomiarem
+       przed i po. Preferowane: **paczkowanie w workerze** (jeden `UPDATE` na paczkę rezerwacji tego samego
+       wydarzenia, z zachowaniem idempotencji). Alternatywa: wstępne odrzucanie „wyprzedane” w Redisie
+       (Lua `DECRBY`) — wymaga uzgodnienia, bo zmienia zasadę Booking API.
+7. [ ] **Osobni użytkownicy bazy dla serwisów** (granty w `init.sql`): worker pisze do `bookings`
+       i zmienia `events.available`, Core API czyta oraz zarządza `events` i `users`. Odpowiedź na zarzut
+       „rozproszonego monolitu” przy wzorcu Shared Database.
+8. [ ] **Pomiary końcowe** — najlepiej na kilkuwęzłowym klastrze w chmurze (kredyty studenckie:
+       Azure for Students / GKE trial); jeśli zostaje laptop, opisać to jako ograniczenie.
+9. [ ] (opcjonalnie) PgBouncer.
+10. [ ] **Frontend (zamrożony, po pomiarach)** — redesign genjutsu, ciemny motyw „spokojna kasa”.
+       **Źródło prawdy wizualnej: `frontend/MASTER.md`** (tokeny w `src/styles/tokens.css`).
+       Zrobione i sprawdzone w przeglądarce: adresy API z `VITE_CORE_URL`/`VITE_BOOKING_URL`
+       (`src/lib/api.ts`), router na History API, JWT (`src/lib/auth.tsx`), Oferta `/`, Wydarzenie
+       `/wydarzenie/:id` z kwitem i pollingiem statusu (backoff 0,4→3 s), Logowanie `/logowanie`,
+       Moje bilety `/moje-bilety`. **Zostało:** Dodaj wydarzenie `/admin`, Od kulis `/od-kulis`
+       (jak to działa) i `/od-kulis/kolejka` (kolejka na żywo; potrzebny endpoint Core API tylko do odczytu
+       z Redisa: XLEN, workery, PEL — może dzielić kod z metrykami z punktu 2), audyt genjutsu (faza 5).
+       Stare `GET /api/users/bookings?email=` można usunąć (frontend już go nie używa).
 
 ## 8. Metodologia badania (ustalenia)
 
-Porównanie „monolit vs HPA” miesza dwie zmienne, więc planowane są **trzy scenariusze**:
+„Monolit vs mikroserwisy” to trzy zmienne naraz (topologia wdrożenia, model przetwarzania,
+sposób skalowania), a monolit też da się skalować horyzontalnie — bez tego porównanie byłoby „chochołem”.
+Stąd **cztery scenariusze**:
 
-| Scenariusz | Zapis rezerwacji | Skalowanie | Co pokazuje |
+| Scenariusz | Architektura | Zapis rezerwacji | Skalowanie |
 | --- | --- | --- | --- |
-| A | synchroniczny zapis do bazy | stała liczba podów | punkt odniesienia |
-| B | kolejka (Redis) | stała liczba podów | zysk z samej kolejki |
-| C | kolejka (Redis) | HPA / KEDA | zysk z autoskalowania |
+| A | monolit | synchroniczny | stała liczba replik |
+| A+ | monolit | synchroniczny | HPA (CPU) |
+| B | mikroserwisy | kolejka (Redis Streams) | stała liczba podów |
+| C | mikroserwisy | kolejka (Redis Streams) | HPA + KEDA |
 
-Scenariusz A wymaga dodatkowego, synchronicznego endpointu rezerwacji (do zrobienia).
+Porównania: A → A+ = zysk z samego autoskalowania; **A+ → C = zysk z kolejki i niezależnego skalowania
+(główny wynik)**; B → C = zysk z autoskalowania w mikroserwisach. Opcjonalnie „monolit + kolejka”
+(oddziela zysk z kolejki od zysku z podziału). Monolit = punkt 3 z sekcji 7.
 
-**Mierzyć:** p50/p95/p99 czasu odpowiedzi, odsetek błędów, RPS, głębokość kolejki w czasie, czas
-opróżnienia kolejki, liczba podów w czasie, czas end-to-end (202 → potwierdzenie), bilans końcowy:
-`liczba 202 = confirmed + rejected`.
+**Zasady uczciwego porównania:** ten sam budżet zasobów (np. łącznie 4 vCPU, to samo
+`maxReplicas × requests`), ta sama baza i dane startowe, ten sam kształt obciążenia, generator poza
+klastrem, rozgrzewka, reset bazy między przebiegami, 3–5 powtórzeń (mediana + rozrzut).
+
+**Kluczowe eksperymenty:**
+- **Izolacja obciążenia** (mieszany ruch ~80% oferta / ~20% rezerwacje): p95 `GET /api/events`
+  osobno — w monolicie rezerwacje spowalniają przeglądanie, w mikroserwisach Core API powinno zostać płaskie.
+- **Punkt przecięcia:** p95 i odsetek błędów w funkcji liczby użytkowników (100/500/1000/2000) —
+  przy małym ruchu monolit równy albo lepszy, powyżej progu wygrywa kolejka + skalowanie.
+- **Efektywność skalowania:** sekundy CPU (albo pod-minuty) na 1000 potwierdzonych rezerwacji.
+- **Wypłaszczenie przez gorący wiersz** i zysk z paczkowania w workerze (sekcja 7, punkt 6).
+- **Parametry autoskalowania** (koszt vs czas reakcji): `minReplicas`, `behavior.scaleUp` w HPA,
+  `pollingInterval` w KEDA, skalowanie po CPU vs po długości kolejki.
+
+**Mierzyć:** p50/p95/p99 osobno dla przeglądania, przyjęcia rezerwacji i statusu; odsetek błędów
+i timeoutów, RPS, głębokość kolejki w czasie, czas opróżnienia kolejki, liczba podów i CPU w czasie,
+czas powrotu do normy, czas end-to-end (202 → potwierdzenie; tu monolit wygra przy małym ruchu — opisać),
+bilans końcowy `liczba 202 = confirmed + rejected`, brak overbookingu.
+
+**Część jakościowa (dyskusja):** tabela „co zyskujemy / co płacimy” — więcej komponentów, trudniejsze
+debugowanie przez kolejkę, spójność ostateczna (czekanie na status) vs niezależne skalowanie i wdrażanie,
+izolacja awarii. Uzasadnić Redis Streams zamiast Kafki/RabbitMQ oraz pojedyncze instancje Postgresa
+i Redisa (ograniczenie + ścieżka: PgBouncer, repliki do odczytu).
 
 **Uwaga:** HPA reaguje wolniej niż skok ruchu (metryki co ~15 s + start poda + opóźnienie CPU) —
 pierwsze sekundy przyjmuje kolejka. To wynik do opisania, nie błąd.

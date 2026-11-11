@@ -1,2 +1,288 @@
-:root { font-family: 'Manrope', sans-serif; font-synthesis: none; text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased; }
-body { margin: 0; min-width: 320px; min-height: 100vh; }
+@import "./styles/tokens.css";
+
+/* Baza: reset, typografia, elementy wspólne dla całej aplikacji. */
+*,
+*::before,
+*::after {
+	box-sizing: border-box;
+}
+
+html {
+	background: var(--ground);
+}
+
+body {
+	margin: 0;
+	min-height: 100vh;
+	background: var(--ground);
+	color: var(--ink);
+	font-family: var(--font-ui);
+	font-size: var(--t-15);
+	line-height: var(--lh-text);
+	font-variant-numeric: tabular-nums;
+	font-synthesis: none;
+	text-rendering: optimizeLegibility;
+	-webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3,
+p {
+	margin: 0;
+}
+
+h1,
+h2,
+h3 {
+	line-height: var(--lh-head);
+	text-wrap: balance;
+}
+
+p {
+	max-width: var(--w-text);
+}
+
+img,
+svg {
+	max-width: 100%;
+}
+
+button,
+input,
+select {
+	font: inherit;
+	color: inherit;
+}
+
+:focus-visible {
+	outline: 2px solid var(--ink);
+	outline-offset: 2px;
+}
+
+.visually-hidden {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+	clip: rect(0 0 0 0);
+	white-space: nowrap;
+}
+
+/* Kontener z marginesem bocznym, który omija też wcięcia ekranu telefonu. */
+.container {
+	width: 100%;
+	max-width: calc(var(--w-shop) + 2 * var(--s-24));
+	margin-inline: auto;
+	padding-left: max(var(--s-16), env(safe-area-inset-left, 0px));
+	padding-right: max(var(--s-16), env(safe-area-inset-right, 0px));
+}
+
+.container--wide {
+	max-width: calc(var(--w-backstage) + 2 * var(--s-24));
+}
+
+@media (min-width: 760px) {
+	.container {
+		padding-left: max(var(--s-24), env(safe-area-inset-left, 0px));
+		padding-right: max(var(--s-24), env(safe-area-inset-right, 0px));
+	}
+}
+
+.label {
+	font-size: var(--t-13);
+	font-weight: 600;
+	color: var(--muted);
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+}
+
+.muted {
+	color: var(--muted);
+}
+
+.small {
+	font-size: var(--t-13);
+}
+
+.mono {
+	font-family: var(--font-id);
+	font-size: var(--t-13);
+}
+
+/* --- Przyciski (pięć stanów) --- */
+.btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: var(--s-8);
+	padding: var(--s-12) var(--s-24);
+	border: 1px solid var(--accent);
+	border-radius: var(--r-6);
+	background: var(--accent);
+	color: var(--accent-ink);
+	font-weight: 600;
+	font-size: var(--t-15);
+	line-height: var(--lh-head);
+	text-decoration: none;
+	cursor: pointer;
+	transition:
+		background-color var(--dur-fast) var(--ease-calm),
+		border-color var(--dur-fast) var(--ease-calm),
+		transform var(--dur-fast) var(--ease-calm);
+}
+
+.btn:hover {
+	background: var(--accent-hover);
+	border-color: var(--accent-hover);
+}
+
+.btn:active {
+	transform: translateY(1px);
+}
+
+.btn:disabled,
+.btn[aria-disabled="true"] {
+	background: var(--track);
+	border-color: var(--track);
+	color: var(--muted);
+	cursor: not-allowed;
+	transform: none;
+}
+
+.btn--quiet {
+	background: transparent;
+	border-color: var(--line);
+	color: var(--ink);
+}
+
+.btn--quiet:hover {
+	background: var(--surface);
+	border-color: var(--line-strong);
+}
+
+.btn--quiet:disabled {
+	background: transparent;
+	border-color: var(--line);
+	color: var(--muted);
+}
+
+.btn--block {
+	width: 100%;
+}
+
+/* --- Link --- */
+.link {
+	color: var(--accent);
+	text-decoration: underline;
+	text-decoration-thickness: 1px;
+	text-underline-offset: 3px;
+	transition: color var(--dur-fast) var(--ease-calm);
+}
+
+.link:hover {
+	color: var(--accent-hover);
+}
+
+.link:focus-visible {
+	border-radius: var(--r-2);
+}
+
+/* --- Pola formularza --- */
+.field {
+	display: grid;
+	gap: var(--s-4);
+}
+
+.field__label {
+	font-size: var(--t-13);
+	font-weight: 600;
+}
+
+.field__hint {
+	font-size: var(--t-13);
+	color: var(--muted);
+}
+
+.field__error {
+	font-size: var(--t-13);
+	color: var(--refuse);
+}
+
+.input {
+	width: 100%;
+	padding: var(--s-12);
+	border: 1px solid var(--line-strong);
+	border-radius: var(--r-6);
+	background: var(--surface);
+	color: var(--ink);
+	transition:
+		border-color var(--dur-fast) var(--ease-calm),
+		box-shadow var(--dur-fast) var(--ease-calm);
+}
+
+.input::placeholder {
+	color: var(--muted);
+}
+
+.input:hover {
+	border-color: var(--muted);
+}
+
+.input:focus-visible {
+	outline: none;
+	border-color: var(--accent);
+	box-shadow:
+		0 0 0 2px var(--accent-soft),
+		0 0 0 4px var(--accent-ring);
+}
+
+.input:disabled {
+	background: var(--ground);
+	border-color: var(--line);
+	color: var(--muted);
+}
+
+.input[aria-invalid="true"] {
+	border-color: var(--refuse);
+}
+
+/* --- Znaczniki statusu --- */
+.pill {
+	display: inline-block;
+	padding: 1px var(--s-8);
+	border-radius: var(--r-2);
+	font-size: var(--t-13);
+	font-weight: 600;
+	white-space: nowrap;
+}
+
+.pill--ok {
+	color: var(--accent);
+	background: var(--accent-soft);
+}
+
+.pill--no {
+	color: var(--refuse);
+	background: var(--refuse-soft);
+}
+
+.pill--queued {
+	color: var(--ink);
+	background: var(--track);
+}
+
+/* Komunikat (błąd, informacja) w treści strony. */
+.notice {
+	padding: var(--s-12) var(--s-16);
+	border: 1px solid var(--line);
+	border-radius: var(--r-6);
+	background: var(--surface);
+	display: grid;
+	gap: var(--s-8);
+	justify-items: start;
+}
+
+.notice--error {
+	border-color: var(--refuse);
+}
