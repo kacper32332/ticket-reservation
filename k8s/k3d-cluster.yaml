@@ -1,0 +1,43 @@
+# Lokalny klaster Kubernetes do developmentu (k3d = k3s w kontenerach Dockera).
+#
+# Utworzenie:  k3d cluster create --config k8s/k3d-cluster.yaml
+# Usunięcie:   k3d cluster delete ticketline
+# Pauza:       k3d cluster stop ticketline   /   k3d cluster start ticketline
+#
+# Dlaczego k3d: klaster wielowęzłowy w kilkanaście sekund, na tym samym Dockerze co compose,
+# a k3s ma wbudowane metrics-server (wymagany przez HPA) i Traefika (Ingress).
+# Alternatywy: kind (brak metrics-server i ingressu w pakiecie), minikube (cięższy, zwykle 1 węzeł),
+# Kubernetes w Docker Desktop (tylko 1 węzeł, brak kontroli nad wersją).
+apiVersion: k3d.io/v1alpha5
+kind: Simple
+metadata:
+  name: ticketline
+# 1 węzeł control-plane + 2 węzły robocze: pody rozkładają się na kilka węzłów,
+# więc widać scheduling i rozkład replik jak w prawdziwym klastrze.
+servers: 1
+agents: 2
+kubeAPI:
+  hostIP: "127.0.0.1"
+  hostPort: "6550"
+ports:
+  # Ingress (Traefik) dostępny z hosta pod http://localhost:8080
+  # (port 80 zostawiamy wolny; 8000/8001/5173 zajmuje docker compose).
+  - port: 8080:80
+    nodeFilters:
+      - loadbalancer
+options:
+  k3d:
+    wait: true
+    timeout: "300s" # pierwszy start pobiera obraz k3s; na Docker Desktop bywa wolno
+  k3s:
+    extraArgs:
+      # Docker Desktop na WSL 2.2 (jądro 5.15) używa cgroup v1, a kubelet od Kubernetesa 1.35
+      # domyślnie odmawia startu na cgroup v1. Ta flaga przywraca tryb zgodności (z ostrzeżeniem).
+      # Docelowo: przejść na cgroup v2 (`wsl --update`) i usunąć ten wpis.
+      - arg: --kubelet-arg=fail-cgroupv1=false
+        nodeFilters:
+          - server:*
+          - agent:*
+  kubeconfig:
+    updateDefaultKubeconfig: true
+    switchCurrentContext: true # kontekst kubectl: k3d-ticketline

@@ -83,11 +83,12 @@ Podział wg **charakterystyki obciążenia**:
 fastapi/                          # C:\Users\Kacper\Desktop\fastapi (Windows)
 ├── CLAUDE.md
 ├── plan.md                       # docelowa struktura monorepo
+├── docs/plan-pracy.md            # spis treści pracy dyplomowej + teza + uwagi do sprawozdania z pracowni
 ├── docker-compose.yml            # postgres, redis, core-api, booking-api, worker, frontend
 ├── .dockerignore                 # ważne: wyklucza node_modules z Windowsa z kontekstu frontendu
 ├── Dockerfile.frontend           # node:25-alpine, vite dev server
 ├── db/init.sql                   # schemat + dane startowe (3 wydarzenia)
-├── k8s/                          # PUSTE — manifesty do zrobienia
+├── k8s/                          # k3d-cluster.yaml, deploy.ps1, README.md, ticketline/ (Helm chart)
 ├── frontend/                     # React + Vite; MASTER.md (system wizualny), src/{lib,pages,components,styles}
 └── backend/
     ├── requirements.txt          # wspólne: fastapi[standard], redis[hiredis], sqlalchemy[asyncio], asyncpg
@@ -147,6 +148,21 @@ docker compose down -v            # reset bazy (init.sql wykonuje się tylko na 
   (200 żądań, 3 workery, `--stream-tests`).
 - Auth (dev): `JWT_SECRET`, `ADMIN_EMAIL`, `ADMIN_PASSWORD` w `docker-compose.yml`; konto admina tworzy
   Core API przy starcie (`ensure_admin_account`, `ON CONFLICT DO NOTHING`). Hasła: Argon2id (`pwdlib`).
+- **Lokalny Kubernetes (k3d 5.9, k3s v1.35):** klaster `ticketline` = 1 server + 2 agenty, kontekst
+  kubectl `k3d-ticketline`, API na `127.0.0.1:6550`, Ingress (Traefik) na `http://localhost:8080`.
+  metrics-server wbudowany w k3s (HPA działa bez instalacji). Polecenia (każde w jednej linii):
+  `k3d cluster create --config k8s/k3d-cluster.yaml`, `k3d cluster stop ticketline`,
+  `k3d cluster start ticketline`, `k3d cluster delete ticketline`, `kubectl get nodes`, `kubectl top nodes`.
+  Obrazy do klastra: `docker compose build`, potem `k3d image import <obraz> -c ticketline`
+  (bez lokalnego registry — na Windowsie `*.localhost` nie zawsze się rozwiązuje).
+  **Pułapka:** Docker Desktop na WSL 2.2 ma cgroup v1, a kubelet 1.35 domyślnie na nim nie startuje
+  (agenty wiszą na „failed to get CA certs”) — config ma `--kubelet-arg=fail-cgroupv1=false`.
+  Docker Desktop ma ~8 GB RAM: przy pracy z klastrem zatrzymać compose (`docker compose stop`).
+  Helm 4.1 zainstalowany. **Wdrożenie:** `.\k8s\deploy.ps1` (build → `k3d image import` → helm →
+  rollout restart; `-SkipBuild`, `-Values values-static.yaml`), namespace `ticketline`. Smoke test
+  w klastrze: `kubectl -n ticketline exec deploy/core-api -- python scripts/smoke_check.py` (obraz Core API
+  zawiera `scripts/`; Service'y na porcie 8000, więc domyślne adresy działają). Ostatni wynik: 20/20 OK.
+  KEDA jeszcze niezainstalowana — bez niej worker ma stałe `worker.replicas` (szczegóły: `k8s/README.md`).
 - Hot reload: backend przez bind mount `./backend:/app` + `--reload`; frontend przez bind mount
   + `VITE_USE_POLLING=true` (Docker na Windowsie nie przekazuje zdarzeń plików).
 - Frontend woła Core API (`VITE_CORE_URL`, domyślnie `http://localhost:8001`) i Booking API
@@ -172,7 +188,9 @@ i dobrze wygląda na zrzutach” i wraca dopiero po pomiarach. Nie dodajemy rzec
       z kontem (`bookings.user_id` puste) — można weryfikować JWT w Booking API bez bazy.
 
 **Do zrobienia (w kolejności):**
-1. [ ] **Kubernetes + Helm** (`k8s/` puste). Lokalnie k3d albo kind (development). Chart: postgres,
+1. [~] **Kubernetes + Helm** — zrobione: klaster k3d, chart `k8s/ticketline` (wszystko poniżej poza
+       KEDA w klastrze), `deploy.ps1`, smoke test 20/20 w klastrze. Zostało: instalacja KEDA i sprawdzenie
+       ScaledObject pod obciążeniem, readiness Core API zwracające 503 przy braku bazy. Plan pierwotny: Chart: postgres,
        redis, core-api i booking-api (Deployment + HPA po CPU), worker (KEDA `ScaledObject`, scaler
        `redis-streams`, `lagCount`), Ingress. Obowiązkowo: `resources.requests/limits`, readiness/liveness
        probe'y, metrics-server, `terminationGracePeriodSeconds` workera ≥ 30 s, sekrety (`JWT_SECRET`,

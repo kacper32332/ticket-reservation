@@ -1,0 +1,81 @@
+# Booking API: producent (XADD do Redis Streams) - celowo BEZ zmiennych bazy danych.
+{{- $c := .Values.bookingApi }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: booking-api
+  labels: {{- include "ticketline.labels" . | nindent 4 }}
+spec:
+  selector: {{- include "ticketline.selector" (dict "component" "booking-api") | nindent 4 }}
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: booking-api
+  labels:
+    {{- include "ticketline.labels" . | nindent 4 }}
+    {{- include "ticketline.selector" (dict "component" "booking-api") | nindent 4 }}
+spec:
+  {{- if not $c.autoscaling.enabled }}
+  replicas: {{ $c.replicas }}
+  {{- end }}
+  selector:
+    matchLabels: {{- include "ticketline.selector" (dict "component" "booking-api") | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "ticketline.selector" (dict "component" "booking-api") | nindent 8 }}
+    spec:
+      containers:
+        - name: booking-api
+          image: {{ include "ticketline.image" (dict "root" . "name" "booking-api") }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            {{- include "ticketline.redisEnv" . | nindent 12 }}
+          readinessProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /health, port: http }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources: {{- toYaml $c.resources | nindent 12 }}
+{{- if $c.autoscaling.enabled }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: booking-api
+  labels: {{- include "ticketline.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: booking-api
+  minReplicas: {{ $c.autoscaling.minReplicas }}
+  maxReplicas: {{ $c.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ $c.autoscaling.targetCPU }}
+  behavior:
+    # Flash crowd: skalowanie w górę bez okna stabilizacji (domyślnie 0 s, ale jawnie),
+    # w dół ostrożnie - żeby nie oscylować po skoku.
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 15
+    scaleDown:
+      stabilizationWindowSeconds: 120
+{{- end }}

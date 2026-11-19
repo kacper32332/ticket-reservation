@@ -1,0 +1,15 @@
+# Scenariusz B: kolejka, stała liczba podów (bez HPA i KEDA).
+# Ten sam budżet zasobów co scenariusz C przy maksymalnym skalowaniu jest decyzją do ustalenia
+# przy pomiarach (sekcja 8 w CLAUDE.md) - tu tylko szkielet.
+coreApi:
+  replicas: 2
+  autoscaling:
+    enabled: false
+bookingApi:
+  replicas: 2
+  autoscaling:
+    enabled: false
+worker:
+  replicas: 3
+  autoscaling:
+    enabled: false

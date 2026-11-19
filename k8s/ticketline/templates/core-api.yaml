@@ -1,0 +1,84 @@
+# Core API: odczyt i zarządzanie (PostgreSQL), skalowane po CPU (HPA).
+{{- $c := .Values.coreApi }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: core-api
+  labels: {{- include "ticketline.labels" . | nindent 4 }}
+spec:
+  selector: {{- include "ticketline.selector" (dict "component" "core-api") | nindent 4 }}
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: core-api
+  labels:
+    {{- include "ticketline.labels" . | nindent 4 }}
+    {{- include "ticketline.selector" (dict "component" "core-api") | nindent 4 }}
+spec:
+  {{- if not $c.autoscaling.enabled }}
+  replicas: {{ $c.replicas }}
+  {{- end }}
+  selector:
+    matchLabels: {{- include "ticketline.selector" (dict "component" "core-api") | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "ticketline.selector" (dict "component" "core-api") | nindent 8 }}
+    spec:
+      initContainers:
+        {{- include "ticketline.waitForPostgres" . | nindent 8 }}
+      containers:
+        - name: core-api
+          image: {{ include "ticketline.image" (dict "root" . "name" "core-api") }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            {{- include "ticketline.dbEnv" . | nindent 12 }}
+            {{- include "ticketline.redisEnv" . | nindent 12 }}
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef: { name: ticketline-secrets, key: jwt-secret }
+            - name: ADMIN_EMAIL
+              valueFrom:
+                secretKeyRef: { name: ticketline-secrets, key: admin-email }
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: ticketline-secrets, key: admin-password }
+          # Uwaga: /health zwraca 200 także przy "degraded" - readiness sprawdza tylko, czy proces
+          # odpowiada. Do rozważenia: 503 przy braku bazy, żeby Service nie kierował ruchu do poda.
+          readinessProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /health, port: http }
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources: {{- toYaml $c.resources | nindent 12 }}
+{{- if $c.autoscaling.enabled }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: core-api
+  labels: {{- include "ticketline.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: core-api
+  minReplicas: {{ $c.autoscaling.minReplicas }}
+  maxReplicas: {{ $c.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ $c.autoscaling.targetCPU }}
+{{- end }}

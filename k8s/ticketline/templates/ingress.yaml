@@ -1,0 +1,25 @@
+{{- if .Values.ingress.enabled }}
+# Jeden punkt wejścia (http://localhost:8080 w k3d). Ścieżki rezerwacji -> Booking API,
+# reszta /api -> Core API. Najdłuższy prefiks wygrywa, więc kolejność nie ma znaczenia.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ticketline
+  labels: {{- include "ticketline.labels" . | nindent 4 }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  rules:
+    - {{- with .Values.ingress.host }}
+      host: {{ . }}
+      {{- end }}
+      http:
+        paths:
+          - path: /api/ticket-requests
+            pathType: Prefix
+            backend:
+              service: { name: booking-api, port: { name: http } }
+          - path: /api
+            pathType: Prefix
+            backend:
+              service: { name: core-api, port: { name: http } }
+{{- end }}

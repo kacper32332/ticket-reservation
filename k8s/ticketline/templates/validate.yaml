@@ -1,0 +1,19 @@
+{{- /*
+Walidacja przy renderowaniu (helm template / install / upgrade): przerywa wdrożenie, jeśli przy
+maksymalnym skalowaniu pody mogłyby otworzyć więcej połączeń, niż przyjmie PostgreSQL.
+To zabezpieczenie decyzji nr 7 z CLAUDE.md - lepiej błąd przy wdrożeniu niż
+"too many clients" w środku testu obciążeniowego.
+*/ -}}
+{{- $perPod := add .Values.db.poolSize .Values.db.maxOverflow -}}
+{{- $core := ternary .Values.coreApi.autoscaling.maxReplicas .Values.coreApi.replicas .Values.coreApi.autoscaling.enabled -}}
+{{- $worker := ternary .Values.worker.autoscaling.maxReplicas .Values.worker.replicas .Values.worker.autoscaling.enabled -}}
+{{- $needed := add (mul (add $core $worker) $perPod) 10 -}}
+{{- if gt (int $needed) (int .Values.postgres.maxConnections) -}}
+{{- fail (printf "Za mało połączeń do PostgreSQL: potrzeba %d (core %d + worker %d podów × %d + 10 zapasu), max_connections = %d. Zmniejsz maxReplicas / pulę albo zwiększ postgres.maxConnections." (int $needed) (int $core) (int $worker) (int $perPod) (int .Values.postgres.maxConnections)) -}}
+{{- end -}}
+{{- if gt (int .Values.worker.batchSize) (int $perPod) -}}
+{{- fail (printf "worker.batchSize (%d) > pula połączeń na pod (%d) - zadania czekałyby na połączenie." (int .Values.worker.batchSize) (int $perPod)) -}}
+{{- end -}}
+{{- if not .Values.postgres.initSql -}}
+{{- fail "Brak schematu bazy: dodaj --set-file postgres.initSql=db/init.sql (najprościej: k8s/deploy.ps1)." -}}
+{{- end -}}

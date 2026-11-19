@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ticketline-secrets
+  labels: {{- include "ticketline.labels" . | nindent 4 }}
+type: Opaque
+stringData:
+  postgres-password: {{ .Values.secrets.postgresPassword | quote }}
+  jwt-secret: {{ .Values.secrets.jwtSecret | quote }}
+  admin-email: {{ .Values.secrets.adminEmail | quote }}
+  admin-password: {{ .Values.secrets.adminPassword | quote }}
+---
+# Schemat bazy z db/init.sql, wykonywany przez obraz postgres przy pierwszym starcie (pusty PVC).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init
+  labels: {{- include "ticketline.labels" . | nindent 4 }}
+data:
+  01-init.sql: |
+{{ .Values.postgres.initSql | indent 4 }}

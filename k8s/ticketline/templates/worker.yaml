@@ -1,0 +1,61 @@
+# Worker: konsument Redis Streams, skalowany przez KEDA po długości kolejki (lag consumer group).
+{{- $c := .Values.worker }}
+{{- $keda := and $c.autoscaling.enabled (.Capabilities.APIVersions.Has "keda.sh/v1alpha1") }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker
+  labels:
+    {{- include "ticketline.labels" . | nindent 4 }}
+    {{- include "ticketline.selector" (dict "component" "worker") | nindent 4 }}
+spec:
+  {{- if not $keda }}
+  replicas: {{ $c.replicas }}
+  {{- end }}
+  selector:
+    matchLabels: {{- include "ticketline.selector" (dict "component" "worker") | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "ticketline.selector" (dict "component" "worker") | nindent 8 }}
+    spec:
+      # Worker po SIGTERM kończy bieżącą paczkę i wypisuje się z consumer group (worker/main.py).
+      terminationGracePeriodSeconds: {{ $c.terminationGracePeriodSeconds }}
+      initContainers:
+        {{- include "ticketline.waitForPostgres" . | nindent 8 }}
+      containers:
+        - name: worker
+          image: {{ include "ticketline.image" (dict "root" . "name" "worker") }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            {{- include "ticketline.dbEnv" . | nindent 12 }}
+            {{- include "ticketline.redisEnv" . | nindent 12 }}
+            - name: WORKER_BATCH_SIZE
+              value: {{ $c.batchSize | quote }}
+          # Bez probe'ów HTTP (worker nie ma serwera). Pad procesu = restart kontenera,
+          # a nieprzetworzone wiadomości przejmie XAUTOCLAIM.
+          resources: {{- toYaml $c.resources | nindent 12 }}
+{{- if $keda }}
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: worker
+  labels: {{- include "ticketline.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    name: worker
+  minReplicaCount: {{ $c.autoscaling.minReplicas }}
+  maxReplicaCount: {{ $c.autoscaling.maxReplicas }}
+  pollingInterval: {{ $c.autoscaling.pollingInterval }}
+  cooldownPeriod: {{ $c.autoscaling.cooldownPeriod }}
+  triggers:
+    - type: redis-streams
+      metadata:
+        address: redis:6379
+        stream: ticket:stream
+        consumerGroup: booking-workers
+        # lagCount = wiadomości jeszcze nieodczytane przez grupę (wymaga Redis 7+).
+        # Worker usuwa tylko wiadomości już dostarczone (XACK + XDEL), więc lag pozostaje poprawny.
+        lagCount: {{ $c.autoscaling.lagCount | quote }}
+        activationLagCount: {{ $c.autoscaling.activationLagCount | quote }}
+{{- end }}

@@ -11,6 +11,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY shared ./shared
 COPY core_api ./core_api
+# Test end-to-end w obrazie: w K8s uruchamiany przez kubectl exec (k8s/README.md).
+COPY scripts ./scripts
 
 EXPOSE 8000
 CMD ["uvicorn", "core_api.main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -1,0 +1,93 @@
+# Domyślne wartości = lokalny klaster k3d, scenariusz C (kolejka + autoskalowanie).
+# Scenariusz B (stała liczba podów): -f k8s/ticketline/values-static.yaml
+#
+# Budżet połączeń do PostgreSQL (sprawdzany przy renderowaniu, patrz templates/validate.yaml):
+#   (coreApi.maxReplicas + worker.maxReplicas) × (db.poolSize + db.maxOverflow) + zapas
+#   musi być < postgres.maxConnections. Booking API nie łączy się z bazą.
+
+image:
+  # Obrazy budowane lokalnie i wgrywane do k3d (k8s/deploy.ps1) - bez registry.
+  registry: ticketline
+  tag: dev
+  pullPolicy: IfNotPresent
+
+# Sekrety tylko do developmentu. Poza k3d nadpisz: --set secrets.jwtSecret=...
+secrets:
+  postgresPassword: tickets
+  jwtSecret: dev-ticketline-jwt-secret-change-in-production
+  adminEmail: admin@ticketline.pl
+  adminPassword: admin12345
+
+db:
+  name: tickets
+  user: tickets
+  # Pula na pod (decyzja nr 7 w CLAUDE.md).
+  poolSize: 5
+  maxOverflow: 5
+
+postgres:
+  image: postgres:16-alpine
+  maxConnections: 200
+  storage: 2Gi
+  # Zawartość db/init.sql - przekazywana przy instalacji: --set-file postgres.initSql=db/init.sql
+  # (init.sql zostaje jedynym źródłem schematu; Helm nie czyta plików spoza katalogu charta).
+  initSql: ""
+  resources:
+    requests: { cpu: 250m, memory: 256Mi }
+    limits: { cpu: "1", memory: 512Mi }
+
+redis:
+  image: redis:7-alpine
+  # AOF: po restarcie poda Redis odtwarza strumień i statusy - bez tego restart Redisa
+  # gubiłby kolejkę, co przeczy tezie „nic nie ginie”. everysec = max ~1 s danych do utraty.
+  appendOnly: true
+  storage: 1Gi
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: 500m, memory: 256Mi }
+
+coreApi:
+  replicas: 1 # używane, gdy autoscaling.enabled = false
+  autoscaling:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 5
+    targetCPU: 70
+  resources:
+    requests: { cpu: 200m, memory: 192Mi }
+    limits: { cpu: "1", memory: 384Mi }
+
+bookingApi:
+  replicas: 1
+  autoscaling:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 8
+    targetCPU: 60 # niżej niż Core API: ten serwis przyjmuje skok jako pierwszy
+  resources:
+    requests: { cpu: 200m, memory: 128Mi }
+    limits: { cpu: "1", memory: 256Mi }
+
+worker:
+  replicas: 1 # używane, gdy KEDA wyłączona albo niezainstalowana
+  batchSize: 10 # <= db.poolSize + db.maxOverflow
+  # Czas na dokończenie paczki po SIGTERM (scale-down KEDA, rolling update).
+  terminationGracePeriodSeconds: 30
+  autoscaling:
+    # KEDA ScaledObject (scaler redis-streams). Renderowany tylko, gdy w klastrze jest CRD KEDA.
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 10
+    lagCount: 50 # docelowa liczba nieprzeczytanych wiadomości na jeden pod
+    activationLagCount: 0
+    pollingInterval: 5 # s, domyślnie w KEDA 30 s - za wolno na flash crowd
+    cooldownPeriod: 60
+  resources:
+    requests: { cpu: 200m, memory: 128Mi }
+    limits: { cpu: "1", memory: 256Mi }
+
+ingress:
+  enabled: true
+  className: traefik # wbudowany w k3s
+  host: "" # pusty = dowolny host (http://localhost:8080 w k3d)
+
